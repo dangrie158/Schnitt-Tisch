@@ -1,7 +1,8 @@
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence, Optional
 from io import BytesIO
+from dataclasses import dataclass, field
 
 from fbs_runtime.application_context.PyQt5 import ApplicationContext
 from PyQt5.QtWidgets import (
@@ -20,23 +21,35 @@ from PyQt5.QtWidgets import (
     QLabel,
     QCheckBox,
     QComboBox,
-    QFontComboBox,
     QSlider,
     QScrollArea,
     QSpacerItem,
     QMainWindow,
     QDockWidget,
-    QAction
+    QAction,
+    QMessageBox,
+    QListWidgetItem,
+    QSizePolicy,
 )
-from PyQt5.QtCore import Qt, pyqtSlot
+from PyQt5.QtCore import Qt, pyqtSlot, QSize
 from PyQt5.QtGui import QPixmap, QIcon
 from PIL.ImageQt import toqpixmap
 import pdf2image
 from PyPDF2 import PdfFileReader
+from reportlab.pdfbase.ttfonts import TTFont, TTFError
+from matplotlib import font_manager
 
-from lib.dimensions import PAGE_SIZES, Defaults
-from lib.underlay import MARKERS, MARKER_SETS
+from lib.dimensions import PAGE_SIZES, Defaults, Size
+from lib.underlay import MARKERS, MARKER_SETS, GlueMarkDefinition
 from lib.posterize import posterize_pdf, save_output
+
+VERSION = "0.1.2"
+
+
+@dataclass
+class GuiSettings:
+    input_files: Sequence[str] = field(default_factory=list)
+    output_formats: Sequence[str] = field(default_factory=list)
 
 
 class FileList(QListWidget):
@@ -68,14 +81,24 @@ class FileList(QListWidget):
             event.setDropAction(Qt.CopyAction)
             event.accept()
             for url in event.mimeData().urls():
-                self.addItem(url.path())
+                if not self.addItem(url.path()):
+                    break
         else:
             event.ignore()
 
     def addItem(self, item: str):
         file_path = Path(item)
-        self.paths.append(file_path)
-        super().addItem(file_path.name)
+        if file_path.suffix == ".pdf":
+            self.paths.append(file_path)
+            new_item = QListWidgetItem(
+                QIcon("src/main/icons/files/pdf.png"), file_path.name, self
+            )
+            super().addItem(new_item)
+            self.setCurrentItem(new_item)
+            return True
+        else:
+            QMessageBox.information(self, "Fehler", "Nur PDF Dateien erlaubt")
+            return False
 
     def takeItem(self, index: int):
         path = self.paths.pop(index)
@@ -137,7 +160,6 @@ class OutputFormatWidget(QGroupBox):
         for format_name in available_formats:
             item = QListWidgetItem(format_name, self.outputformats_list)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            # item.setFlags(item.flags() ^ Qt.ItemIsSelectable)
             item.setCheckState(Qt.Checked)
             self.outputformats_list.addItem(item)
 
@@ -151,23 +173,12 @@ class OutputFolderWidget(QGroupBox):
     def __init__(self, title: str, *args, **kwargs):
         super().__init__(title, *args, **kwargs)
 
-        self.browse_text = QLineEdit(self)
-
-        browse_button = QPushButton("Auswählen", self)
-        browse_button.clicked.connect(lambda: self.openFolderChooser())
+        self.multifile = QCheckBox("mehrere Dateien", self)
 
         layout = QHBoxLayout()
-        layout.addWidget(self.browse_text)
-        layout.addWidget(browse_button)
+        layout.addWidget(self.multifile)
 
         self.setLayout(layout)
-
-    def openFolderChooser(self):
-        folder = QFileDialog.getExistingDirectory(
-            self, "Ausgabeordner wählen", self.browse_text.text()
-        )
-        if folder:
-            self.browse_text.setText(folder)
 
 
 class UnderlaySettingsWidget(QGroupBox):
@@ -178,7 +189,7 @@ class UnderlaySettingsWidget(QGroupBox):
 
         self.dpi = QSpinBox(self)
         self.dpi.setMaximum(600)
-        self.dpi.setMinimum(18)
+        self.dpi.setMinimum(72)
         self.dpi.setValue(Defaults.DPI)
         layout.addWidget(QLabel("Dokument DPI"), 0, 0)
         layout.addWidget(self.dpi, 0, 1)
@@ -201,30 +212,56 @@ class GlueMarkWidget(QGroupBox):
         layout = QGridLayout()
         self.setLayout(layout)
 
+        font_layout = QHBoxLayout(self)
         self.font_size = QSpinBox(self)
         self.font_size.setMinimum(5)
         self.font_size.setMaximum(100)
         self.font_size.setValue(Defaults.FONT_SIZE)
-        self.font = QFontComboBox(self)
 
+        self.font = QComboBox(self)
+        for font in sorted(font_manager.fontManager.ttflist, key=lambda x: x.name):
+            try:
+                TTFont(font.fname, font.fname)
+                self.font.addItem(QIcon("src/main/icons/files/font.png"), font.name, font)
+            except:
+                continue
+            
+        font_layout.addWidget(self.font, 3)
+        font_layout.addWidget(self.font_size, 1)
+        font_layout.setContentsMargins(0, 0, 0, 0)
+
+        font_widget = QWidget(self)
+        font_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        font_widget.setMaximumHeight(self.font.height())
+        font_widget.setContentsMargins(0, 0, 0, 0)
+        font_widget.setLayout(font_layout)
         layout.addWidget(QLabel("Schrift", self), 0, 0)
-        layout.addWidget(self.font_size, 0, 2)
-        layout.addWidget(self.font, 0, 1)
+        layout.addWidget(font_widget, 0, 1, 1, 2)
 
         layout.addWidget(QLabel("Marker", self), 4, 0)
         self.marker_type_x = QComboBox(self)
-        self.marker_type_x.addItems(MARKERS.keys())
-        layout.addWidget(self.marker_type_x, 4, 1)
         self.marker_type_y = QComboBox(self)
-        self.marker_type_y.addItems(MARKERS.keys())
+
+        for name, marker in MARKERS.items():
+            self.marker_type_x.addItem(
+                QIcon(f"src/main/icons/markers/{name}.png"), name, marker
+            )
+            self.marker_type_y.addItem(
+                QIcon(f"src/main/icons/markers/{name}.png"), name, marker
+            )
+
+        layout.addWidget(self.marker_type_x, 4, 1)
         layout.addWidget(self.marker_type_y, 4, 2)
 
         layout.addWidget(QLabel("Beschriftungen", self), 5, 0)
         self.marker_labels_x = QComboBox(self)
-        self.marker_labels_x.addItems(MARKER_SETS.keys())
-        layout.addWidget(self.marker_labels_x, 5, 1)
         self.marker_labels_y = QComboBox(self)
-        self.marker_labels_y.addItems(MARKER_SETS.keys())
+
+        for name, marker_set in MARKER_SETS.items():
+            self.marker_labels_x.addItem(name, marker_set)
+            self.marker_labels_y.addItem(name, marker_set)
+
+        layout.addWidget(self.marker_labels_x, 5, 1)
         layout.addWidget(self.marker_labels_y, 5, 2)
 
         layout.addWidget(QLabel("Größe innen", self), 6, 0)
@@ -280,6 +317,8 @@ class GlueMarkWidget(QGroupBox):
 
 class PreviewWidget(QGroupBox):
     def __init__(self, title: str, *args, **kwargs):
+
+        self.pages: Optional[Sequence[BytesIO]] = None
         self.current_page = 1
         self.dpi = 40
 
@@ -287,10 +326,10 @@ class PreviewWidget(QGroupBox):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        self.preview_box = QLabel(self)
-
         scroller = QScrollArea(self)
+        self.preview_box = QLabel(scroller)
         scroller.setWidget(self.preview_box)
+        scroller.setAlignment(Qt.AlignCenter)
         layout.addWidget(scroller)
 
         control_layout = QHBoxLayout()
@@ -337,17 +376,31 @@ class PreviewWidget(QGroupBox):
         control_widget.setLayout(control_layout)
 
         layout.addWidget(control_widget)
+        self.update_preview()
 
     def update_preview(self):
-        pdf_file = self.pages[self.current_page]
-        pdf_file.seek(0)
+        if self.pages is not None:
+            pdf_file = self.pages[self.current_page]
+            pdf_file.seek(0)
 
-        preview_image = pdf2image.convert_from_bytes(
-            pdf_file.read(), dpi=self.dpi, first_page=0, last_page=0, use_cropbox=True
-        )
-        image = toqpixmap(preview_image[0])
-        self.preview_box.setPixmap(image)
-        self.preview_box.resize(image.size())
+            preview_image = pdf2image.convert_from_bytes(
+                pdf_file.read(),
+                dpi=self.dpi,
+                first_page=0,
+                last_page=0,
+                use_cropbox=True,
+            )
+            image = toqpixmap(preview_image[0])
+            self.preview_box.setPixmap(image)
+            self.preview_box.resize(image.size())
+        else:
+            self.preview_box.setTextFormat(Qt.RichText)
+            self.preview_box.setStyleSheet("QLabel { color : darkgray; }")
+            self.preview_box.setText(
+                '<center><img src="src/main/icons/mac/128.png" /><br />Wähle auf der rechten Seite<br />eine Datei und ein Papierformat<br />aus um die Vorschau anzuzeigen</center>'
+            )
+
+            self.preview_box.resize(QSize(200, 200))
 
     def update_controls(self):
         if self.pages:
@@ -361,8 +414,8 @@ class PreviewWidget(QGroupBox):
 
     def set_preview_pages(self, pages):
         self.pages = pages
-        self.update_preview()
         self.update_controls()
+        self.update_preview()
 
     def set_page(self, page):
         self.current_page = page
@@ -382,15 +435,23 @@ class PreviewWidget(QGroupBox):
 
 
 class MainWindow(QMainWindow):
+    marker_def = GlueMarkDefinition()
+    underlay_def = GlueMarkDefinition()
+
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle('Schnitt Tisch')
+        self.setWindowTitle("Schnitt Tisch")
+        self.setWindowIcon(QIcon("src/main/icons/Icon.ico"))
         self.init_menu()
 
         self.file_box = InputFilesWidget("Eingabedateien", self)
+        self.file_box.file_list.currentRowChanged.connect(self.updatePreview)
         self.outputformat_box = OutputFormatWidget(
             "Ausgabeformate", PAGE_SIZES.keys(), self
+        )
+        self.outputformat_box.outputformats_list.currentRowChanged.connect(
+            self.updatePreview
         )
 
         io_layout = QVBoxLayout()
@@ -402,10 +463,28 @@ class MainWindow(QMainWindow):
         io_widget.setLayout(io_layout)
 
         self.outputfolder_box = OutputFolderWidget("Ausgabepfad", self)
+
         self.underlaysettings_box = UnderlaySettingsWidget(
             "Dokumenteinstellungen", self
         )
+        self.underlaysettings_box.dpi.valueChanged.connect(self.updatePreview)
+        self.underlaysettings_box.overlap.valueChanged.connect(self.updatePreview)
+
         self.gluemarks_box = GlueMarkWidget("Klebehilfen", self)
+
+        self.gluemarks_box.font.currentTextChanged.connect(self.updatePreview)
+        self.gluemarks_box.font_size.valueChanged.connect(self.updatePreview)
+        self.gluemarks_box.marker_type_x.currentTextChanged.connect(self.updatePreview)
+        self.gluemarks_box.marker_type_y.currentTextChanged.connect(self.updatePreview)
+        self.gluemarks_box.marker_labels_x.currentTextChanged.connect(
+            self.updatePreview
+        )
+        self.gluemarks_box.marker_labels_y.currentTextChanged.connect(
+            self.updatePreview
+        )
+        self.gluemarks_box.marker_inner_size.sliderReleased.connect(self.updatePreview)
+        self.gluemarks_box.marker_outer_size.sliderReleased.connect(self.updatePreview)
+
         settings_layout = QVBoxLayout()
         settings_layout.addWidget(self.outputfolder_box, 1)
         settings_layout.addWidget(self.underlaysettings_box, 3)
@@ -418,18 +497,6 @@ class MainWindow(QMainWindow):
 
         self.preview_widget = PreviewWidget("Vorschau", self)
 
-        reader = PdfFileReader(
-            open(
-                "/Users/daniel/Documents/pdfposterize/5.1.2020. MisterChilloverA0.pdf",
-                "rb",
-            )
-        )
-        page = reader.pages[0]
-        output_pages = posterize_pdf(
-            page, PAGE_SIZES["A4"], Defaults.OVERLAP, Defaults.DPI
-        )
-        self.preview_widget.set_preview_pages(output_pages)
-
         action_button_layout = QHBoxLayout()
 
         site_link = QLabel('<a href="https://naehcram.de/">by Nähcram</a>')
@@ -441,40 +508,130 @@ class MainWindow(QMainWindow):
         self.export_button = QPushButton(
             QIcon("src/main/icons/actions/save.png"), "Exportieren"
         )
+
+        self.export_button.clicked.connect(self.exportPdf)
+        self.file_box.file_list.model().rowsInserted.connect(self.update_export_state)
+        self.file_box.file_list.model().rowsRemoved.connect(self.update_export_state)
+        self.update_export_state()
+
         self.export_button.setFixedWidth(200)
         action_button_layout.addWidget(self.export_button, alignment=Qt.AlignRight)
-
+        action_button_widget = QWidget(self)
+        action_button_widget.setLayout(action_button_layout)
 
         self.setCentralWidget(self.preview_widget)
         left_widget = QDockWidget()
         left_widget.setWidget(io_widget)
         left_widget.setFeatures(QDockWidget.NoDockWidgetFeatures)
         left_widget.setTitleBarWidget(QWidget(self))
+
         right_widget = QDockWidget()
         right_widget.setWidget(settings_widget)
         right_widget.setFeatures(QDockWidget.NoDockWidgetFeatures)
         right_widget.setTitleBarWidget(QWidget(self))
+
+        bottom_widget = QDockWidget()
+        bottom_widget.setWidget(action_button_widget)
+        bottom_widget.setFeatures(QDockWidget.NoDockWidgetFeatures)
+        bottom_widget.setTitleBarWidget(QWidget(self))
+        bottom_widget.setMaximumHeight(50)
+        bottom_widget.setMinimumHeight(50)
+
         self.addDockWidget(Qt.LeftDockWidgetArea, left_widget)
         self.addDockWidget(Qt.RightDockWidgetArea, right_widget)
+        self.addDockWidget(Qt.BottomDockWidgetArea, bottom_widget)
 
     def init_menu(self):
-        exitAct = QAction( ' &asd', self)        
-        exitAct.setShortcut('Ctrl+Q')
-        exitAct.setStatusTip('Exit application')
-        exitAct.triggered.connect(app.quit)
+        exportAction = QAction("Exportieren", self)
+        exportAction.setShortcut("Ctrl+Shift+S")
+        exportAction.triggered.connect(self.exportPdf)
 
-        exitAct = QAction( 'asdasd', self)        
-        exitAct.setShortcut('Ctrl+U')
-        exitAct.setStatusTip('asd application')
+        exitAct = QAction("Quit", self)
+        exitAct.setShortcut("Ctrl+Q")
         exitAct.triggered.connect(app.quit)
 
         menubar = self.menuBar()
-        fileMenu = menubar.addMenu('&File')
+        fileMenu = menubar.addMenu("&File")
+        fileMenu.addAction(exportAction)
+        fileMenu.addSeparator()
         fileMenu.addAction(exitAct)
-        #menubar.setNativeMenuBar(False)
 
-    def init_statusbar(self):
-        self.statusBar()
+        helpMenu = menubar.addMenu("&Help")
+        aboutAct = QAction("Über", self)
+        aboutAct.setShortcut("Ctrl+?")
+        aboutText = f'<big>Schnitt Tisch</big><br /><small>v{VERSION}</small><br /><a href="https://naehcram.de/">by Nähcram</a>'
+        aboutAct.triggered.connect(
+            lambda: QMessageBox.about(self, self.windowTitle(), aboutText)
+        )
+        helpMenu.addAction(aboutAct)
+
+    def updatePreview(self):
+        self.updateSettings()
+
+        input_file_index = self.file_box.file_list.currentRow()
+        outputformat_item = self.outputformat_box.outputformats_list.currentItem()
+
+        if input_file_index < 0 or outputformat_item is None:
+            self.preview_widget.set_preview_pages(None)
+        else:
+            selected_input_file = self.file_box.file_list.paths[input_file_index]
+            reader = PdfFileReader(open(selected_input_file, "rb",))
+            page = reader.pages[0]
+
+            output_pages = posterize_pdf(
+                page,
+                PAGE_SIZES[outputformat_item.text()],
+                self.underlay_def.overlap,
+                self.underlay_def.dpi,
+                self.marker_def,
+            )
+            self.preview_widget.set_preview_pages(output_pages)
+
+    def updateSettings(self):
+        font_name = self.gluemarks_box.font.currentData().fname
+        try:
+            TTFont(font_name, font_name)
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Fehler",
+                "Die ausgewählte Schriftart wird leider nicht unterstützt",
+            )
+            print(e)
+        else:
+            self.marker_def.font = font_name
+
+        self.marker_def.font_size = self.gluemarks_box.font_size.value()
+        self.marker_def.marker_x = self.gluemarks_box.marker_type_x.currentData()
+        self.marker_def.marker_y = self.gluemarks_box.marker_type_y.currentData()
+        self.marker_def.label_x = self.gluemarks_box.marker_labels_x.currentData()
+        self.marker_def.label_y = self.gluemarks_box.marker_labels_y.currentData()
+        self.marker_def.size = Size(
+            self.gluemarks_box.marker_inner_size.value(),
+            self.gluemarks_box.marker_outer_size.value(),
+        )
+
+        self.underlay_def.overlap = self.underlaysettings_box.overlap.value()
+        self.underlay_def.dpi = self.underlaysettings_box.dpi.value()
+
+    def exportPdf(self):
+
+        input_file_index = self.file_box.file_list.currentRow()
+        preselected_folder = ""
+        if input_file_index >= 0:
+            preselected_folder = Path(
+                self.file_box.file_list.paths[input_file_index]
+            ).parent
+        folder = QFileDialog.getExistingDirectory(
+            self, "Ausgabeordner wählen", str(preselected_folder)
+        )
+        if folder:
+            print(folder)
+
+    def update_export_state(self):
+        enabled = self.file_box.file_list.model().rowCount() > 0
+        self.export_button.setEnabled(enabled)
+
 
 if __name__ == "__main__":
 

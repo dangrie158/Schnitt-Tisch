@@ -5,7 +5,7 @@ from os import makedirs
 from PyPDF2 import PdfFileReader, PdfFileWriter, pdf
 
 from lib.dimensions import DEFAULT_DPI, PAGE_SIZES, DEFAULT_OVERLAP
-from lib.posterize import posterize_pdf, save_output, OverlayDefinition
+from lib.posterize import posterize_pdf, save_output
 
 if __name__ == "__main__":
     parser = ArgumentParser("pdfposterize", "split a big PDF file into multiple pages")

@@ -8,12 +8,16 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 from PyPDF2 import PdfFileReader, PdfFileWriter, pdf
 
-from .underlay import assembly_guide, OverlayDefinition, Point
+from .underlay import assembly_guide, UnderlayDefinition, Point, GlueMarkDefinition
 from .dimensions import mm_to_points, points_to_mm
 
 
 def posterize_pdf(
-    page: pdf.PageObject, page_size: Point[float], overlap: float, dpi: int
+    page: pdf.PageObject,
+    page_size: Point[float],
+    overlap: float,
+    dpi: int,
+    marker_def: GlueMarkDefinition,
 ) -> Mapping[int, BytesIO]:
     input_size = Point(
         points_to_mm(float(page.mediaBox[2]), dpi),
@@ -26,8 +30,8 @@ def posterize_pdf(
         width=mm_to_points(output_size.x, dpi), height=mm_to_points(output_size.y, dpi),
     )
 
-    underlay_def = OverlayDefinition(page_count, page_size, overlap, dpi)
-    output_container.mergePage(assembly_guide(underlay_def))
+    underlay_def = UnderlayDefinition(page_count, page_size, overlap, dpi)
+    output_container.mergePage(assembly_guide(underlay_def, marker_def))
     output_container.mergePage(page)
 
     output_pages = {}

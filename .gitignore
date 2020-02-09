@@ -3,3 +3,7 @@
 *.pdf
 *.mypy_cache/
 **/*.DS_Store
+**/py_cache/**
+**.pyc
+build/**
+target/**

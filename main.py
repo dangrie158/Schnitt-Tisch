@@ -237,9 +237,7 @@ if __name__ == "__main__":
                 with open(filepath, "wb") as output_stream:
                     output_stream.write(page.read())
         else:
-            filename = (
-                f"{args.input.stem}_{args.page_format}.pdf"
-            )
+            filename = f"{args.input.stem}_{args.page_format}.pdf"
             filepath = args.input.parent.joinpath(filename)
 
             file_writer = PdfFileWriter()
