@@ -1,3 +1,9 @@
+"""
+This file borrows most code from matplotlibs font_manager module.
+The code is copied to not depend on the whole of matplotlib (includeing numpy, etc..)
+just for the sake of getting a list of installed TTF Fonts
+"""
+
 import sys
 import os
 import logging
