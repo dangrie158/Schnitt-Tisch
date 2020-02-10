@@ -7,16 +7,16 @@ from typing import Tuple, Sequence
 from reportlab.pdfbase import pdfmetrics
 from PyPDF2 import pdf, PdfFileReader
 
-from .dimensions import mm_to_points, Point, Size
+from .dimensions import mm_to_points, Point, Size, PAGE_SIZES, Defaults as DimDefaults
 from .markers import MarkerFunction, MARKERS, MARKER_SETS
 
 
 @dataclass
 class UnderlayDefinition:
-    page_count: Point[int]
-    page_size: Size[float]
-    overlap: float
-    dpi: int
+    page_count: Point[int] = Point(0, 0)
+    page_size: Size[float] = PAGE_SIZES['A4']
+    overlap: float = DimDefaults.OVERLAP
+    dpi: int = DimDefaults.DPI
 
     @property
     def underlay_size(self):
@@ -25,7 +25,7 @@ class UnderlayDefinition:
 
 @dataclass
 class GlueMarkDefinition:
-    font: str = "Arial.ttf"
+    font: TTFont = "Arial.ttf"
     font_size: int = 25
     grid_color: Tuple[float, float, float] = (0.7, 0.7, 0.7)
     grid_width: float = 3
@@ -105,8 +105,8 @@ def alignment_markers(
 def sort_markers(
     canvas: Canvas, underlay: UnderlayDefinition, marker: GlueMarkDefinition
 ):
-    pdfmetrics.registerFont(TTFont(marker.font, marker.font))
-    canvas.setFont(marker.font, marker.font_size)
+    pdfmetrics.registerFont(marker.font)
+    canvas.setFont(marker.font.face.filename, marker.font_size)
     canvas.setStrokeColorRGB(*marker.marker_color)
 
     for ix in range(1, underlay.page_count.x):
