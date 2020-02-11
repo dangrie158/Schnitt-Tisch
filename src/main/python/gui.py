@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 from typing import Iterable, Sequence, Optional
 from io import BytesIO
@@ -39,7 +40,7 @@ from PyPDF2 import PdfFileReader
 
 from lib.dimensions import PAGE_SIZES, Defaults, Size
 from lib.underlay import MARKERS, MARKER_SETS, GlueMarkDefinition, UnderlayDefinition
-from lib.posterize import posterize_pdf, save_output
+from lib.posterize import posterize_pdf, save_output, get_save_paths
 from lib.fonts import font_manager
 
 VERSION = "0.1.2"
@@ -168,7 +169,7 @@ class OutputFormatWidget(QGroupBox):
         self.setLayout(layout)
 
 
-class OutputFolderWidget(QGroupBox):
+class OutputOptionsWidget(QGroupBox):
     def __init__(self, title: str, *args, **kwargs):
         super().__init__(title, *args, **kwargs)
 
@@ -397,7 +398,7 @@ class PreviewWidget(QGroupBox):
 
     def update_controls(self):
         if self.pages:
-            num_pages = max(self.pages.keys())
+            num_pages = len(self.pages)
             if self.current_page >= num_pages:
                 self.current_page = num_pages
 
@@ -455,7 +456,7 @@ class MainWindow(QMainWindow):
         io_widget.setMaximumWidth(400)
         io_widget.setLayout(io_layout)
 
-        self.outputfolder_box = OutputFolderWidget("Ausgabepfad", self)
+        self.outputoptions_box = OutputOptionsWidget("Ausgabepfad", self)
 
         self.underlaysettings_box = UnderlaySettingsWidget(
             "Dokumenteinstellungen", self
@@ -478,7 +479,7 @@ class MainWindow(QMainWindow):
         self.gluemarks_box.marker_outer_size.sliderReleased.connect(self.updatePreview)
 
         settings_layout = QVBoxLayout()
-        settings_layout.addWidget(self.outputfolder_box, 1)
+        settings_layout.addWidget(self.outputoptions_box, 1)
         settings_layout.addWidget(self.underlaysettings_box, 2)
         settings_layout.addWidget(self.gluemarks_box, 5)
 
@@ -571,11 +572,9 @@ class MainWindow(QMainWindow):
             self.preview_widget.set_preview_pages(None)
         else:
             selected_input_file = self.file_box.file_list.paths[input_file_index]
-            reader = PdfFileReader(open(selected_input_file, "rb",))
-            page = reader.pages[0]
 
             output_pages = posterize_pdf(
-                page,
+                selected_input_file,
                 PAGE_SIZES[outputformat_item.text()],
                 self.underlay_def.overlap,
                 self.underlay_def.dpi,
@@ -611,8 +610,38 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(
             self, "Ausgabeordner wählen", str(preselected_folder)
         )
+        
+        multipage = self.outputoptions_box.multifile.isChecked()
+        format_list = self.outputformat_box.outputformats_list
+        output_formats = [format_list.item(x).text() for x in range(format_list.count()) if format_list.item(x).checkState() == Qt.Checked]
+        print(output_formats)
+        
         if folder:
-            print(folder)
+            folder = Path(folder)
+            needs_force = False
+            output_pages = {}
+            output_files = {}
+            for in_file in self.file_box.file_list.paths:
+                for format in output_formats:
+                    file_key = f"{in_file.stem}_{format}"
+                    output_pages[file_key] = posterize_pdf(
+                        in_file,
+                        PAGE_SIZES[format],
+                        self.underlay_def.overlap,
+                        self.underlay_def.dpi,
+                        self.marker_def,
+                    )
+
+                    output_files[file_key] = get_save_paths(folder, file_key, multipage, output_pages[file_key])
+                    needs_force = any(os.path.exists(output_file) for output_file in output_files[file_key])
+
+            if needs_force:
+                do_override = QMessageBox.question(self, "Ausgabeverzeichnis existiert", "Ausgabepfad existiert bereits, überschreiben?")
+
+            if not needs_force or do_override:
+                for file_key, out_pages in output_pages.items():
+                    out_files = output_files[file_key]
+                    save_output(out_files, out_pages)
 
     def update_export_state(self):
         enabled = self.file_box.file_list.model().rowCount() > 0
@@ -620,10 +649,8 @@ class MainWindow(QMainWindow):
 
 
 if __name__ == "__main__":
-
-    app = QApplication([])
-
     appctxt = ApplicationContext()
+    app = appctxt.app
 
     main_window = MainWindow()
     main_window.show()

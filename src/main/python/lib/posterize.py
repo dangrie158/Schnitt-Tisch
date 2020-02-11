@@ -1,6 +1,7 @@
 from io import BytesIO
 import copy
-from typing import Mapping
+import os
+from typing import MutableMapping, Sequence
 from pathlib import Path
 
 from reportlab.pdfgen.canvas import Canvas
@@ -13,12 +14,19 @@ from .dimensions import mm_to_points, points_to_mm
 
 
 def posterize_pdf(
-    page: pdf.PageObject,
+    in_file: Path,
     page_size: Point[float],
     overlap: float,
     dpi: int,
     marker_def: GlueMarkDefinition,
-) -> Mapping[int, BytesIO]:
+) -> Sequence[BytesIO]:
+
+
+    reader = PdfFileReader(open(in_file, "rb",))
+
+    print(in_file)
+    page = reader.pages[0]
+    
     input_size = Point(
         points_to_mm(float(page.mediaBox[2]), dpi),
         points_to_mm(float(page.mediaBox[3]), dpi),
@@ -34,7 +42,7 @@ def posterize_pdf(
     output_container.mergePage(assembly_guide(underlay_def, marker_def))
     output_container.mergePage(page)
 
-    output_pages = {}
+    output_pages: MutableMapping[int, pdf.PageObject] = {}
 
     for ix in range(page_count.x):
         for iy in range(page_count.y):
@@ -65,22 +73,34 @@ def posterize_pdf(
             page_file.seek(0)
 
             output_pages[page_num] = page_file
-    return output_pages
+    return [output_pages[key] for key in sorted(output_pages.keys())]
 
 
-def save_output(pages: Mapping[int, BytesIO], multipage: bool, output_location: Path):
+def save_output(files: Sequence[Path], pages: Sequence[BytesIO]):
+    multipage = len(files) > 1 and len(files) == len(pages)
+
     if multipage:
-        for page_num, page in pages.items():
-            filepath = output_location.joinpath(f"page{page_num:03d}.pdf")
-
+        os.makedirs(files[0].parent, exist_ok=True)
+        for filepath, page in zip(files, pages):
             with open(filepath, "wb") as output_stream:
                 output_stream.write(page.read())
     else:
         file_writer = PdfFileWriter()
 
-        for _, page in sorted(pages.items(), key=lambda kv: kv[0]):
+        for page in pages:
             page_reader = PdfFileReader(page)
             file_writer.addPage(page_reader.pages[0])
 
-        with open(output_location, "wb") as output_stream:
+        with open(files[0], "wb") as output_stream:
             file_writer.write(output_stream)
+
+def get_save_paths(output_location: Path, filename: Path, multipage: bool, pages: Sequence[BytesIO]):
+
+    if multipage:
+        paths = []
+        for page_num, page in enumerate(pages):
+            filepath = output_location.joinpath(filename, f"page{page_num + 1:03d}.pdf")
+            paths.append(filepath)
+        return paths
+    else:
+        return [output_location.joinpath(f"{filename}.pdf")]
