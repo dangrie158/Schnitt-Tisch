@@ -5,7 +5,7 @@ from os import makedirs
 from PyPDF2 import PdfFileReader, PdfFileWriter, pdf
 
 from lib.dimensions import DEFAULT_DPI, PAGE_SIZES, DEFAULT_OVERLAP
-from lib.posterize import posterize_pdf, save_output
+from lib.posterize import posterize_pdf, save_output, get_save_paths
 
 if __name__ == "__main__":
     parser = ArgumentParser("pdfposterize", "split a big PDF file into multiple pages")
@@ -48,15 +48,10 @@ if __name__ == "__main__":
         page = input.pages[0]
         page_size = PAGE_SIZES[args.page_format]
 
+        output_location = args.input.parent.joinpath(
+            
+        )
+
         output_pages = posterize_pdf(page, page_size, args.overlap, args.dpi)
-
-        if args.multipage:
-            output_location = args.input.parent.joinpath(
-                f"{args.input.stem}_{args.page_format}"
-            )
-            makedirs(output_location, exist_ok=True)
-        else:
-            filename = f"{args.input.stem}_{args.page_format}.pdf"
-            output_location = args.input.parent.joinpath(filename)
-
-        save_output(output_pages, args.multipage, output_location)
+        output_files = get_save_paths(args.input.parent, f"{args.input.stem}_{args.page_format}", args.multipage, output_pages)
+        save_output(output_files, output_pages)
