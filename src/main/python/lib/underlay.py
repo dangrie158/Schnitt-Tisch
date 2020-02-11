@@ -14,7 +14,7 @@ from .markers import MarkerFunction, MARKERS, MARKER_SETS
 @dataclass
 class UnderlayDefinition:
     page_count: Point[int] = Point(0, 0)
-    page_size: Size[float] = PAGE_SIZES['A4']
+    page_size: Size[float] = PAGE_SIZES["A4"]
     overlap: float = DimDefaults.OVERLAP
     dpi: int = DimDefaults.DPI
 

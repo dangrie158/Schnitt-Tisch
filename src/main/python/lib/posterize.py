@@ -21,12 +21,11 @@ def posterize_pdf(
     marker_def: GlueMarkDefinition,
 ) -> Sequence[BytesIO]:
 
-
     reader = PdfFileReader(open(in_file, "rb",))
 
     print(in_file)
     page = reader.pages[0]
-    
+
     input_size = Point(
         points_to_mm(float(page.mediaBox[2]), dpi),
         points_to_mm(float(page.mediaBox[3]), dpi),
@@ -94,7 +93,10 @@ def save_output(files: Sequence[Path], pages: Sequence[BytesIO]):
         with open(files[0], "wb") as output_stream:
             file_writer.write(output_stream)
 
-def get_save_paths(output_location: Path, filename: Path, multipage: bool, pages: Sequence[BytesIO]):
+
+def get_save_paths(
+    output_location: Path, filename: Path, multipage: bool, pages: Sequence[BytesIO]
+):
 
     if multipage:
         paths = []

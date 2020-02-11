@@ -48,10 +48,13 @@ if __name__ == "__main__":
         page = input.pages[0]
         page_size = PAGE_SIZES[args.page_format]
 
-        output_location = args.input.parent.joinpath(
-            
-        )
+        output_location = args.input.parent.joinpath()
 
         output_pages = posterize_pdf(page, page_size, args.overlap, args.dpi)
-        output_files = get_save_paths(args.input.parent, f"{args.input.stem}_{args.page_format}", args.multipage, output_pages)
+        output_files = get_save_paths(
+            args.input.parent,
+            f"{args.input.stem}_{args.page_format}",
+            args.multipage,
+            output_pages,
+        )
         save_output(output_files, output_pages)

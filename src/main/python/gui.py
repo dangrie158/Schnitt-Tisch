@@ -128,7 +128,9 @@ class InputFilesWidget(QGroupBox):
 
         delete_button.clicked.connect(on_remove_selected_item)
 
-        add_button = QPushButton(QIcon(appctxt.get_resource("actions/add_file.png")), "", self)
+        add_button = QPushButton(
+            QIcon(appctxt.get_resource("actions/add_file.png")), "", self
+        )
         add_button.clicked.connect(lambda: self.openFileChooser())
 
         buttons = QWidget(self)
@@ -216,8 +218,12 @@ class GlueMarkWidget(QGroupBox):
 
         self.font = QComboBox(self)
         for font in sorted(font_manager.ttflist, key=lambda x: x.face.name):
-            self.font.addItem(QIcon(appctxt.get_resource("files/font.png")), font.face.name.decode('ascii'), font)
-            
+            self.font.addItem(
+                QIcon(appctxt.get_resource("files/font.png")),
+                font.face.name.decode("ascii"),
+                font,
+            )
+
         font_layout.addWidget(self.font, 3)
         font_layout.addWidget(self.font_size, 1)
         font_layout.setContentsMargins(0, 0, 0, 0)
@@ -236,12 +242,8 @@ class GlueMarkWidget(QGroupBox):
 
         for name, marker in MARKERS.items():
             marker_icon = QIcon(appctxt.get_resource(f"markers/{name}.png"))
-            self.marker_type_x.addItem(
-                marker_icon, name, marker
-            )
-            self.marker_type_y.addItem(
-                marker_icon, name, marker
-            )
+            self.marker_type_x.addItem(marker_icon, name, marker)
+            self.marker_type_y.addItem(marker_icon, name, marker)
 
         layout.addWidget(self.marker_type_x, 4, 1)
         layout.addWidget(self.marker_type_y, 4, 2)
@@ -610,12 +612,16 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(
             self, "Ausgabeordner wählen", str(preselected_folder)
         )
-        
+
         multipage = self.outputoptions_box.multifile.isChecked()
         format_list = self.outputformat_box.outputformats_list
-        output_formats = [format_list.item(x).text() for x in range(format_list.count()) if format_list.item(x).checkState() == Qt.Checked]
+        output_formats = [
+            format_list.item(x).text()
+            for x in range(format_list.count())
+            if format_list.item(x).checkState() == Qt.Checked
+        ]
         print(output_formats)
-        
+
         if folder:
             folder = Path(folder)
             needs_force = False
@@ -632,11 +638,20 @@ class MainWindow(QMainWindow):
                         self.marker_def,
                     )
 
-                    output_files[file_key] = get_save_paths(folder, file_key, multipage, output_pages[file_key])
-                    needs_force = any(os.path.exists(output_file) for output_file in output_files[file_key])
+                    output_files[file_key] = get_save_paths(
+                        folder, file_key, multipage, output_pages[file_key]
+                    )
+                    needs_force = any(
+                        os.path.exists(output_file)
+                        for output_file in output_files[file_key]
+                    )
 
             if needs_force:
-                do_override = QMessageBox.question(self, "Ausgabeverzeichnis existiert", "Ausgabepfad existiert bereits, überschreiben?")
+                do_override = QMessageBox.question(
+                    self,
+                    "Ausgabeverzeichnis existiert",
+                    "Ausgabepfad existiert bereits, überschreiben?",
+                )
 
             if not needs_force or do_override:
                 for file_key, out_pages in output_pages.items():
