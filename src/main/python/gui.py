@@ -2,6 +2,7 @@ import sys
 import os
 from pathlib import Path
 from typing import Iterable, Sequence, Optional
+from threading import Thread
 from io import BytesIO
 from dataclasses import dataclass, field
 
@@ -32,10 +33,10 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QSizePolicy,
 )
-from PyQt5.QtCore import Qt, pyqtSlot, QSize
-from PyQt5.QtGui import QPixmap, QIcon
+from PyQt5.QtCore import Qt, pyqtSlot, QSize, QSettings
+from PyQt5.QtGui import QPixmap, QIcon, QMovie
 from PIL.ImageQt import toqpixmap
-import pdf2image
+from fitz import Document, Matrix
 from PyPDF2 import PdfFileReader
 
 from lib.dimensions import PAGE_SIZES, Defaults, Size
@@ -316,7 +317,7 @@ class PreviewWidget(QGroupBox):
 
         self.pages: Optional[Sequence[BytesIO]] = None
         self.current_page = 1
-        self.dpi = 40
+        self.zoom_factor = 1.0
 
         super().__init__(title, *args, **kwargs)
         layout = QVBoxLayout()
@@ -336,11 +337,15 @@ class PreviewWidget(QGroupBox):
         self.button_zoom_out = QPushButton(
             QIcon(appctxt.get_resource("actions/zoom_out.png")), "", self
         )
-        self.button_zoom_out.clicked.connect(lambda: self.set_dpi(self.dpi - 10))
+        self.button_zoom_out.clicked.connect(
+            lambda: self.set_zoom(self.zoom_factor * 0.9)
+        )
         self.button_zoom_in = QPushButton(
             QIcon(appctxt.get_resource("actions/zoom_in.png")), "", self
         )
-        self.button_zoom_in.clicked.connect(lambda: self.set_dpi(self.dpi + 10))
+        self.button_zoom_in.clicked.connect(
+            lambda: self.set_zoom(self.zoom_factor * 1.1)
+        )
         control_layout.addWidget(self.button_zoom_fit)
         control_layout.addWidget(self.button_zoom_out)
         control_layout.addWidget(self.button_zoom_in)
@@ -374,21 +379,34 @@ class PreviewWidget(QGroupBox):
         layout.addWidget(control_widget)
         self.update_preview()
 
+    def set_loading(self):
+        loader = QMovie(appctxt.get_resource("animations/loader.gif"))
+        self.preview_box.setMovie(loader)
+        loader.jumpToFrame(0)
+        self.preview_box.resize(loader.currentImage().size())
+        loader.start()
+
     def update_preview(self):
         if self.pages is not None:
             pdf_file = self.pages[self.current_page]
             pdf_file.seek(0)
+            document = Document(stream=pdf_file, filetype="PDF")
+            image = QPixmap()
 
-            preview_image = pdf2image.convert_from_bytes(
-                pdf_file.read(),
-                dpi=self.dpi,
-                first_page=0,
-                last_page=0,
-                use_cropbox=True,
+            page = document.loadPage(0)
+
+            container_size = self.preview_box.parent().size()
+
+            normalized_zoom_factor = min(
+                page.rect.height / container_size.height(),
+                page.rect.width / container_size.width(),
             )
-            image = toqpixmap(preview_image[0])
-            self.preview_box.setPixmap(image)
-            self.preview_box.resize(image.size())
+            scale_mat = Matrix(normalized_zoom_factor, normalized_zoom_factor)
+
+            image.loadFromData(page.getPixmap(matrix=scale_mat).getPNGData())
+            image_size = container_size * self.zoom_factor
+            self.preview_box.setPixmap(image.scaled(image_size, Qt.KeepAspectRatio))
+            self.preview_box.resize(image_size)
         else:
             self.preview_box.setTextFormat(Qt.RichText)
             self.preview_box.setStyleSheet("QLabel { color : darkgray; }")
@@ -397,6 +415,10 @@ class PreviewWidget(QGroupBox):
             )
 
             self.preview_box.resize(QSize(200, 200))
+
+    def resizeEvent(self, event):
+        self.update_preview()
+        return super().resizeEvent(event)
 
     def update_controls(self):
         if self.pages:
@@ -418,16 +440,13 @@ class PreviewWidget(QGroupBox):
         self.update_preview()
         self.update_controls()
 
-    def set_dpi(self, dpi):
-        self.dpi = dpi
+    def set_zoom(self, zoom_factor):
+        self.zoom_factor = zoom_factor
         self.update_preview()
         self.update_controls()
 
     def zoom_fit(self):
-        width_ratio = self.preview_box.size().width() / self.size().width()
-        height_ratio = self.preview_box.size().height() / self.size().height()
-        new_dpi = self.dpi / max(width_ratio, height_ratio)
-        self.set_dpi(new_dpi)
+        self.set_zoom(1.0)
 
 
 class MainWindow(QMainWindow):
@@ -442,12 +461,8 @@ class MainWindow(QMainWindow):
         self.init_menu()
 
         self.file_box = InputFilesWidget("Eingabedateien", self)
-        self.file_box.file_list.currentRowChanged.connect(self.updatePreview)
         self.outputformat_box = OutputFormatWidget(
             "Ausgabeformate", PAGE_SIZES.keys(), self
-        )
-        self.outputformat_box.outputformats_list.currentRowChanged.connect(
-            self.updatePreview
         )
 
         io_layout = QVBoxLayout()
@@ -463,22 +478,8 @@ class MainWindow(QMainWindow):
         self.underlaysettings_box = UnderlaySettingsWidget(
             "Dokumenteinstellungen", self
         )
-        self.underlaysettings_box.dpi.valueChanged.connect(self.updatePreview)
 
         self.gluemarks_box = GlueMarkWidget("Klebehilfen", self)
-
-        self.gluemarks_box.font.currentTextChanged.connect(self.updatePreview)
-        self.gluemarks_box.font_size.valueChanged.connect(self.updatePreview)
-        self.gluemarks_box.marker_type_x.currentTextChanged.connect(self.updatePreview)
-        self.gluemarks_box.marker_type_y.currentTextChanged.connect(self.updatePreview)
-        self.gluemarks_box.marker_labels_x.currentTextChanged.connect(
-            self.updatePreview
-        )
-        self.gluemarks_box.marker_labels_y.currentTextChanged.connect(
-            self.updatePreview
-        )
-        self.gluemarks_box.marker_inner_size.sliderReleased.connect(self.updatePreview)
-        self.gluemarks_box.marker_outer_size.sliderReleased.connect(self.updatePreview)
 
         settings_layout = QVBoxLayout()
         settings_layout.addWidget(self.outputoptions_box, 1)
@@ -508,6 +509,25 @@ class MainWindow(QMainWindow):
             QIcon(appctxt.get_resource("actions/save.png")), "Exportieren"
         )
 
+        self.loadSettings()
+        self.file_box.file_list.currentRowChanged.connect(self.updatePreview)
+        self.outputformat_box.outputformats_list.currentRowChanged.connect(
+            self.updatePreview
+        )
+        self.underlaysettings_box.dpi.valueChanged.connect(self.updatePreview)
+        self.underlaysettings_box.overlap.valueChanged.connect(self.updatePreview)
+        self.gluemarks_box.font.currentTextChanged.connect(self.updatePreview)
+        self.gluemarks_box.font_size.valueChanged.connect(self.updatePreview)
+        self.gluemarks_box.marker_type_x.currentTextChanged.connect(self.updatePreview)
+        self.gluemarks_box.marker_type_y.currentTextChanged.connect(self.updatePreview)
+        self.gluemarks_box.marker_labels_x.currentTextChanged.connect(
+            self.updatePreview
+        )
+        self.gluemarks_box.marker_labels_y.currentTextChanged.connect(
+            self.updatePreview
+        )
+        self.gluemarks_box.marker_inner_size.sliderReleased.connect(self.updatePreview)
+        self.gluemarks_box.marker_outer_size.sliderReleased.connect(self.updatePreview)
         self.export_button.clicked.connect(self.exportPdf)
         self.file_box.file_list.model().rowsInserted.connect(self.update_export_state)
         self.file_box.file_list.model().rowsRemoved.connect(self.update_export_state)
@@ -565,24 +585,30 @@ class MainWindow(QMainWindow):
         helpMenu.addAction(aboutAct)
 
     def updatePreview(self):
-        self.updateSettings()
 
+        self.updateSettings()
         input_file_index = self.file_box.file_list.currentRow()
         outputformat_item = self.outputformat_box.outputformats_list.currentItem()
 
         if input_file_index < 0 or outputformat_item is None:
             self.preview_widget.set_preview_pages(None)
         else:
-            selected_input_file = self.file_box.file_list.paths[input_file_index]
 
-            output_pages = posterize_pdf(
-                selected_input_file,
-                PAGE_SIZES[outputformat_item.text()],
-                self.underlay_def.overlap,
-                self.underlay_def.dpi,
-                self.marker_def,
-            )
-            self.preview_widget.set_preview_pages(output_pages)
+            def asyncUpdatePreview():
+                selected_input_file = self.file_box.file_list.paths[input_file_index]
+
+                output_pages = posterize_pdf(
+                    selected_input_file,
+                    PAGE_SIZES[outputformat_item.text()],
+                    self.underlay_def.overlap,
+                    self.underlay_def.dpi,
+                    self.marker_def,
+                )
+                self.preview_widget.set_preview_pages(output_pages)
+
+            self.preview_widget.set_loading()
+            updater = Thread(target=asyncUpdatePreview)
+            updater.start()
 
     def updateSettings(self):
         font = self.gluemarks_box.font.currentData()
@@ -600,6 +626,65 @@ class MainWindow(QMainWindow):
 
         self.underlay_def.overlap = self.underlaysettings_box.overlap.value()
         self.underlay_def.dpi = self.underlaysettings_box.dpi.value()
+        self.saveSettings()
+
+    def saveSettings(self):
+        settings.setValue("marker_def/font", self.gluemarks_box.font.currentText())
+        settings.setValue("marker_def/font_size", self.marker_def.font_size)
+        settings.setValue(
+            "marker_def/marker_x", self.gluemarks_box.marker_type_x.currentText()
+        )
+        settings.setValue(
+            "marker_def/marker_y", self.gluemarks_box.marker_type_y.currentText()
+        )
+        settings.setValue(
+            "marker_def/label_x", self.gluemarks_box.marker_labels_x.currentText()
+        )
+        settings.setValue(
+            "marker_def/label_y", self.gluemarks_box.marker_labels_y.currentText()
+        )
+        settings.setValue("marker_def/size/inner", self.marker_def.size.x)
+        settings.setValue("marker_def/size/outer", self.marker_def.size.y)
+        settings.setValue("underlay_def/overlap", self.underlay_def.overlap)
+        settings.setValue("underlay_def/dpi", self.underlay_def.dpi)
+        settings.setValue("multifile", self.outputoptions_box.multifile.isChecked())
+
+    def loadSettings(self):
+        self.gluemarks_box.font.setCurrentText(
+            settings.value(
+                "marker_def/font", self.gluemarks_box.font.currentData().face.name
+            )
+        )
+        self.gluemarks_box.font_size.setValue(
+            int(settings.value("marker_def/font_size", Defaults.FONT_SIZE))
+        )
+        self.gluemarks_box.marker_type_x.setCurrentText(
+            settings.value("marker_def/marker_x", list(MARKERS.keys())[0])
+        )
+        self.gluemarks_box.marker_type_y.setCurrentText(
+            settings.value("marker_def/marker_y", list(MARKERS.keys())[0])
+        )
+        self.gluemarks_box.marker_labels_x.setCurrentText(
+            settings.value("marker_def/label_x", list(MARKER_SETS.keys())[0])
+        )
+        self.gluemarks_box.marker_labels_y.setCurrentText(
+            settings.value("marker_def/label_y", list(MARKER_SETS.keys())[0])
+        )
+        self.gluemarks_box.marker_inner_size.setValue(
+            int(settings.value("marker_def/size/inner", Defaults.MARKER_SIZE.x))
+        )
+        self.gluemarks_box.marker_outer_size.setValue(
+            int(settings.value("marker_def/size/outer", Defaults.MARKER_SIZE.y))
+        )
+        self.underlaysettings_box.overlap.setValue(
+            int(settings.value("underlay_def/overlap", Defaults.OVERLAP))
+        )
+        self.underlaysettings_box.dpi.setValue(
+            int(settings.value("underlay_def/dpi", Defaults.DPI))
+        )
+        self.outputoptions_box.multifile.setChecked(
+            bool(settings.value("multifile", False))
+        )
 
     def exportPdf(self):
 
@@ -620,43 +705,43 @@ class MainWindow(QMainWindow):
             for x in range(format_list.count())
             if format_list.item(x).checkState() == Qt.Checked
         ]
-        print(output_formats)
 
-        if folder:
-            folder = Path(folder)
-            needs_force = False
-            output_pages = {}
-            output_files = {}
-            for in_file in self.file_box.file_list.paths:
-                for format in output_formats:
-                    file_key = f"{in_file.stem}_{format}"
-                    output_pages[file_key] = posterize_pdf(
-                        in_file,
-                        PAGE_SIZES[format],
-                        self.underlay_def.overlap,
-                        self.underlay_def.dpi,
-                        self.marker_def,
-                    )
-
-                    output_files[file_key] = get_save_paths(
-                        folder, file_key, multipage, output_pages[file_key]
-                    )
-                    needs_force = any(
-                        os.path.exists(output_file)
-                        for output_file in output_files[file_key]
-                    )
-
-            if needs_force:
-                do_override = QMessageBox.question(
-                    self,
-                    "Ausgabeverzeichnis existiert",
-                    "Ausgabepfad existiert bereits, überschreiben?",
+        if not folder:
+            return
+        folder = Path(folder)
+        needs_force = False
+        output_pages = {}
+        output_files = {}
+        for in_file in self.file_box.file_list.paths:
+            for format in output_formats:
+                file_key = f"{in_file.stem}_{format}"
+                output_pages[file_key] = posterize_pdf(
+                    in_file,
+                    PAGE_SIZES[format],
+                    self.underlay_def.overlap,
+                    self.underlay_def.dpi,
+                    self.marker_def,
                 )
 
-            if not needs_force or do_override:
-                for file_key, out_pages in output_pages.items():
-                    out_files = output_files[file_key]
-                    save_output(out_files, out_pages)
+                output_files[file_key] = get_save_paths(
+                    folder, file_key, multipage, output_pages[file_key]
+                )
+                needs_force = any(
+                    os.path.exists(output_file)
+                    for output_file in output_files[file_key]
+                )
+
+        if needs_force:
+            do_override = QMessageBox.question(
+                self,
+                "Ausgabeverzeichnis existiert",
+                "Ausgabepfad existiert bereits, überschreiben?",
+            )
+
+        if not needs_force or do_override:
+            for file_key, out_pages in output_pages.items():
+                out_files = output_files[file_key]
+                save_output(out_files, out_pages)
 
     def update_export_state(self):
         enabled = self.file_box.file_list.model().rowCount() > 0
@@ -666,6 +751,7 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     appctxt = ApplicationContext()
     app = appctxt.app
+    settings = QSettings("Schnitt Tisch", "Naehcram")
 
     main_window = MainWindow()
     main_window.show()

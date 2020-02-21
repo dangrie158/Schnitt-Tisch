@@ -23,7 +23,6 @@ def posterize_pdf(
 
     reader = PdfFileReader(open(in_file, "rb",))
 
-    print(in_file)
     page = reader.pages[0]
 
     input_size = Point(

@@ -1,5 +1,5 @@
 {
-    "app_name": "PDFPosterize",
+    "app_name": "Schnitt Tisch",
     "author": "dangrie158",
     "main_module": "src/main/python/gui.py",
     "version": "1.0.0"

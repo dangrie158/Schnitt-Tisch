@@ -71,6 +71,7 @@ class Defaults:
     DPI = 72
     OVERLAP = 10
     FONT_SIZE = 25
+    MARKER_SIZE = Size(35, 50)
 
 
 PAGE_SIZES = {"A4": Size(210, 294), "A3": Size(294, 420)}
