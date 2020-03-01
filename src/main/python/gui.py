@@ -155,7 +155,14 @@ class InputFilesWidget(QGroupBox):
 
 
 class OutputFormatWidget(QGroupBox):
-    def __init__(self, title: str, available_formats: Iterable[str], *args, **kwargs):
+    def __init__(
+        self,
+        title: str,
+        available_formats: Iterable[str],
+        active_formats: Iterable[str],
+        *args,
+        **kwargs,
+    ):
         super().__init__(title, *args, **kwargs)
 
         self.outputformats_list = QListWidget(self)
@@ -163,7 +170,10 @@ class OutputFormatWidget(QGroupBox):
         for format_name in available_formats:
             item = QListWidgetItem(format_name, self.outputformats_list)
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked)
+            if format_name in active_formats:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
             self.outputformats_list.addItem(item)
 
         layout = QVBoxLayout()
@@ -462,7 +472,7 @@ class MainWindow(QMainWindow):
 
         self.file_box = InputFilesWidget("Eingabedateien", self)
         self.outputformat_box = OutputFormatWidget(
-            "Ausgabeformate", PAGE_SIZES.keys(), self
+            "Ausgabeformate", PAGE_SIZES.keys(), Defaults.ACTIVE_PAGE_SIZES, self
         )
 
         io_layout = QVBoxLayout()
@@ -649,6 +659,15 @@ class MainWindow(QMainWindow):
         settings.setValue("underlay_def/dpi", self.underlay_def.dpi)
         settings.setValue("multifile", self.outputoptions_box.multifile.isChecked())
 
+        format_list = self.outputformat_box.outputformats_list
+        active_page_sizes = [
+            format_list.item(x).text()
+            for x in range(format_list.count())
+            if format_list.item(x).checkState() == Qt.Checked
+        ]
+
+        settings.setValue("active_page_sizes", active_page_sizes)
+
     def loadSettings(self):
         self.gluemarks_box.font.setCurrentText(
             settings.value(
@@ -686,6 +705,17 @@ class MainWindow(QMainWindow):
         self.outputoptions_box.multifile.setChecked(
             bool(settings.value("multifile", False))
         )
+
+        active_page_sizes = settings.value(
+            "active_page_sizes", Defaults.ACTIVE_PAGE_SIZES
+        )
+        format_list = self.outputformat_box.outputformats_list
+        for i in range(format_list.count()):
+            item = format_list.item(i)
+            size_name = item.text()
+            item.setCheckState(
+                Qt.Checked if size_name in active_page_sizes else Qt.Unchecked
+            )
 
     def exportPdf(self):
 
