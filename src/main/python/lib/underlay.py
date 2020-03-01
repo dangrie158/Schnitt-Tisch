@@ -72,12 +72,8 @@ def alignment_markers(
         )
         for iy in range(underlay.page_count.y):
             y_center = mm_to_points(
-                underlay.underlay_size.y
-                - (
-                    ((iy - 2) * (underlay.page_size.y - underlay.overlap))
-                    + underlay.overlap / 2
-                )
-                - (underlay.underlay_size.y / 2),
+                (iy * (underlay.page_size.y - underlay.overlap))
+                + (underlay.page_size.y / 2),
                 underlay.dpi,
             )
             marker.marker_x(
@@ -92,7 +88,7 @@ def alignment_markers(
         for iy in range(1, underlay.page_count.y):
             y_bottom = mm_to_points(
                 (
-                    ((iy) * (underlay.page_size.y - underlay.overlap))
+                    (iy * (underlay.page_size.y - underlay.overlap))
                     + underlay.overlap / 2
                 ),
                 underlay.dpi,
@@ -116,15 +112,15 @@ def sort_markers(
         )
         for iy in range(underlay.page_count.y):
             y_center = mm_to_points(
-                underlay.underlay_size.y
-                - (
-                    ((iy - 2) * (underlay.page_size.y - underlay.overlap))
-                    + underlay.overlap / 2
-                )
-                - (underlay.underlay_size.y / 2),
+                (iy * (underlay.page_size.y - underlay.overlap))
+                + (underlay.page_size.y / 2),
                 underlay.dpi,
             )
-            marker_num = ix - 1 + (iy * (underlay.page_count.x - 1))
+            marker_num = (
+                ix
+                - 1
+                + ((underlay.page_count.y - 1 - iy) * (underlay.page_count.x - 1))
+            )
             marker_label = marker.label_x[marker_num % len(marker.label_x)]
             canvas.drawCentredString(
                 x_outer - marker.font_size / 2,
@@ -145,7 +141,7 @@ def sort_markers(
         for iy in range(1, underlay.page_count.y):
             y_bottom = mm_to_points(
                 (
-                    ((iy) * (underlay.page_size.y - underlay.overlap))
+                    (iy * (underlay.page_size.y - underlay.overlap))
                     + underlay.overlap / 2
                 ),
                 underlay.dpi,
