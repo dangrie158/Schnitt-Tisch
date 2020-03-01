@@ -388,7 +388,7 @@ class PreviewWidget(QGroupBox):
 
     def update_preview(self):
         if self.pages is not None:
-            pdf_file = self.pages[self.current_page]
+            pdf_file = self.pages[self.current_page - 1]
             pdf_file.seek(0)
             document = Document(stream=pdf_file, filetype="PDF")
             image = QPixmap()
@@ -652,7 +652,8 @@ class MainWindow(QMainWindow):
     def loadSettings(self):
         self.gluemarks_box.font.setCurrentText(
             settings.value(
-                "marker_def/font", self.gluemarks_box.font.currentData().face.name
+                "marker_def/font",
+                self.gluemarks_box.font.currentData().face.name.decode("ascii"),
             )
         )
         self.gluemarks_box.font_size.setValue(

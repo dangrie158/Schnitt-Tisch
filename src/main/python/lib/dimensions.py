@@ -74,4 +74,4 @@ class Defaults:
     MARKER_SIZE = Size(35, 50)
 
 
-PAGE_SIZES = {"A4": Size(210, 294), "A3": Size(294, 420)}
+PAGE_SIZES = {"A4": Size(210, 294), "A3": Size(294, 420), "A0": Size(841, 1189)}
