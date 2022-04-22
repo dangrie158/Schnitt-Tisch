@@ -1,7 +1,7 @@
 
 dataclasses==0.7
 PyInstaller==3.6
-PyPDF2==1.26.0
+PyPDF2==1.27.5
 PyQt5==5.9.2
 PyMuPDF==1.16.10
 reportlab==3.5.34
