@@ -4,5 +4,5 @@ PyInstaller==3.6
 PyPDF2==1.27.5
 PyQt5==5.9.2
 PyMuPDF==1.16.10
-reportlab==3.5.34
+reportlab==3.5.55
 fbs==0.8.5
